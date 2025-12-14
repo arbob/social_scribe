@@ -1,9 +1,10 @@
 defmodule SocialScribe.TokenRefresher do
   @moduledoc """
-  Refreshes Google tokens.
+  Refreshes OAuth tokens for Google and HubSpot.
   """
 
   @google_token_url "https://oauth2.googleapis.com/token"
+  @hubspot_token_url "https://api.hubapi.com/oauth/v1/token"
 
   @behaviour SocialScribe.TokenRefresherApi
 
@@ -17,6 +18,9 @@ defmodule SocialScribe.TokenRefresher do
     Tesla.client(middlewares)
   end
 
+  @doc """
+  Refresh a Google OAuth token.
+  """
   def refresh_token(refresh_token_string) do
     client_id = Application.fetch_env!(:ueberauth, Ueberauth.Strategy.Google.OAuth)[:client_id]
 
@@ -32,6 +36,34 @@ defmodule SocialScribe.TokenRefresher do
 
     # Use Tesla to make the POST request
     case Tesla.post(client(), @google_token_url, body, opts: [form_urlencoded: true]) do
+      {:ok, %Tesla.Env{status: 200, body: response_body}} ->
+        {:ok, response_body}
+
+      {:ok, %Tesla.Env{status: status, body: error_body}} ->
+        {:error, {status, error_body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Refresh a HubSpot OAuth token.
+  """
+  def refresh_hubspot_token(refresh_token_string) do
+    client_id = Application.fetch_env!(:ueberauth, Ueberauth.Strategy.HubSpot.OAuth)[:client_id]
+
+    client_secret =
+      Application.fetch_env!(:ueberauth, Ueberauth.Strategy.HubSpot.OAuth)[:client_secret]
+
+    body = %{
+      client_id: client_id,
+      client_secret: client_secret,
+      refresh_token: refresh_token_string,
+      grant_type: "refresh_token"
+    }
+
+    case Tesla.post(client(), @hubspot_token_url, body, opts: [form_urlencoded: true]) do
       {:ok, %Tesla.Env{status: 200, body: response_body}} ->
         {:ok, response_body}
 

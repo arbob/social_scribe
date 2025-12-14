@@ -355,7 +355,11 @@ defmodule SocialScribe.Meetings do
 
       {:ok, _transcript} = create_meeting_transcript(transcript_attrs)
 
-      Enum.each(bot_api_info.meeting_participants || [], fn participant_data ->
+      # Note: Recall.ai v2 API doesn't include meeting_participants directly
+      # They are available via participant_events download URL
+      participants = Map.get(bot_api_info, :meeting_participants, [])
+
+      Enum.each(participants, fn participant_data ->
         participant_attrs = parse_participant_attrs(meeting, participant_data)
         create_meeting_participant(participant_attrs)
       end)
@@ -401,11 +405,20 @@ defmodule SocialScribe.Meetings do
     }
   end
 
-  defp parse_transcript_attrs(meeting, transcript_data) do
+  defp parse_transcript_attrs(meeting, transcript_data) when is_list(transcript_data) and length(transcript_data) > 0 do
     %{
       meeting_id: meeting.id,
       content: %{data: transcript_data},
-      language: List.first(transcript_data || []) |> Map.get(:language, "unknown")
+      language: List.first(transcript_data) |> Map.get(:language, "unknown")
+    }
+  end
+
+  defp parse_transcript_attrs(meeting, _transcript_data) do
+    # Handle case where transcript is not available, empty, or is an error message
+    %{
+      meeting_id: meeting.id,
+      content: %{data: []},
+      language: "unknown"
     }
   end
 

@@ -3,17 +3,17 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'social-scribe'
+app = 'social-scribe-app'
 primary_region = 'gru'
 kill_signal = 'SIGTERM'
 
 [build]
 
 [deploy]
-  release_command = '/app/bin/migrate'
+  release_command = '/app/bin/social_scribe eval "SocialScribe.Release.migrate"'
 
 [env]
-  PHX_HOST = 'social-scribe.fly.dev'
+  PHX_HOST = 'social-scribe-app.fly.dev'
   PORT = '8080'
 
 [http_service]

@@ -2,7 +2,7 @@ import Config
 config :social_scribe, Oban, testing: :manual
 
 # Only in tests, remove the complexity from the password hashing algorithm
-config :bcrypt_elixir, :log_rounds, 1
+config :pbkdf2_elixir, :rounds, 1
 
 # Configure your database
 #

@@ -6,6 +6,10 @@ defmodule SocialScribeWeb.MeetingLive.Show do
 
   alias SocialScribe.Meetings
   alias SocialScribe.Automations
+  alias SocialScribe.Accounts
+  alias SocialScribe.HubSpotApi
+  alias SocialScribe.AIContentGeneratorApi
+  alias SocialScribe.TokenRefresher
 
   @impl true
   def mount(%{"id" => meeting_id}, _session, socket) do
@@ -66,6 +70,99 @@ defmodule SocialScribeWeb.MeetingLive.Show do
     socket =
       socket
       |> assign(:follow_up_email_form, to_form(params))
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:search_hubspot_contacts, query, component_id}, socket) do
+    credential = Accounts.get_user_credential(socket.assigns.current_user, "hubspot")
+
+    if credential do
+      # Check if token needs refresh (expired or will expire in the next minute)
+      credential = maybe_refresh_hubspot_token(credential)
+
+      case HubSpotApi.search_contacts(credential.token, query) do
+        {:ok, results} ->
+          send_update(component_id, search_results: results, searching: false)
+
+        {:error, {401, _}} ->
+          # Token might still be invalid, try one more refresh
+          case refresh_hubspot_token(credential) do
+            {:ok, refreshed_credential} ->
+              case HubSpotApi.search_contacts(refreshed_credential.token, query) do
+                {:ok, results} ->
+                  send_update(component_id, search_results: results, searching: false)
+
+                {:error, _} ->
+                  send_update(component_id, search_results: [], searching: false)
+              end
+
+            {:error, _} ->
+              send_update(component_id, search_results: [], searching: false)
+          end
+
+        {:error, _} ->
+          send_update(component_id, search_results: [], searching: false)
+      end
+    else
+      send_update(component_id, search_results: [], searching: false)
+    end
+
+    {:noreply, socket}
+  end
+
+  defp maybe_refresh_hubspot_token(credential) do
+    # Check if token is expired or will expire soon (within 5 minutes)
+    # Refresh 5 minutes before expiry to avoid race conditions
+    five_minutes_from_now = DateTime.add(DateTime.utc_now(), 5 * 60, :second)
+
+    should_refresh =
+      credential.expires_at &&
+        DateTime.compare(credential.expires_at, five_minutes_from_now) == :lt
+
+    if should_refresh do
+      case refresh_hubspot_token(credential) do
+        {:ok, refreshed_credential} -> refreshed_credential
+        {:error, _} -> credential
+      end
+    else
+      credential
+    end
+  end
+
+  defp refresh_hubspot_token(credential) do
+    case TokenRefresher.refresh_hubspot_token(credential.refresh_token) do
+      {:ok, %{"access_token" => new_token, "expires_in" => expires_in}} ->
+        expires_at = DateTime.add(DateTime.utc_now(), expires_in, :second)
+
+        case Accounts.update_user_credential(credential, %{
+               token: new_token,
+               expires_at: expires_at
+             }) do
+          {:ok, updated_credential} -> {:ok, updated_credential}
+          error -> error
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @impl true
+  def handle_info({:generate_hubspot_suggestions, meeting, contact, component_id}, socket) do
+    require Logger
+    Logger.info("Generating HubSpot suggestions for meeting #{meeting.id}, contact: #{inspect(contact.id)}")
+
+    case AIContentGeneratorApi.generate_hubspot_suggestions(meeting, contact) do
+      {:ok, suggestions} ->
+        Logger.info("Generated #{length(suggestions)} suggestions")
+        send_update(component_id, suggestions: suggestions, loading_suggestions: false)
+
+      {:error, reason} ->
+        Logger.error("Failed to generate HubSpot suggestions: #{inspect(reason)}")
+        send_update(component_id, suggestions: [], loading_suggestions: false)
+    end
 
     {:noreply, socket}
   end

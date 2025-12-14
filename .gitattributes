@@ -1,0 +1,10 @@
+# Set the default behavior, in case people don't have core.autocrlf set.
+* text=auto
+
+# Shell scripts should use LF even on Windows
+*.sh text eol=lf
+*.sh.eex text eol=lf
+
+# Declare files that will always have Unix line endings
+rel/**/*.sh text eol=lf
+rel/**/*.sh.eex text eol=lf
