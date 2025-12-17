@@ -65,18 +65,46 @@ defmodule SocialScribe.CalendarSyncronizer do
 
   defp sync_items(items, user_id, credential_id) do
     Enum.each(items, fn item ->
-      # We only sync meetings that have a zoom or google meet link for now
-      if String.contains?(Map.get(item, "location", ""), ".zoom.") || Map.get(item, "hangoutLink") do
-        Calendar.create_or_update_calendar_event(parse_google_event(item, user_id, credential_id))
+      # We only sync meetings that have a zoom or google meet link
+      location = Map.get(item, "location", "")
+      meeting_link = extract_meeting_link(item)
+
+      has_zoom = String.contains?(location, ".zoom.") or
+                 String.contains?(location, "zoom.us") or
+                 (is_binary(meeting_link) and String.contains?(meeting_link, "zoom.us"))
+      has_meet = Map.get(item, "hangoutLink") != nil or
+                 String.contains?(location, "meet.google.com") or
+                 (is_binary(meeting_link) and String.contains?(meeting_link, "meet.google.com"))
+
+      if has_zoom or has_meet do
+        Calendar.create_or_update_calendar_event(parse_google_event(item, user_id, credential_id, meeting_link))
       end
     end)
 
     :ok
   end
 
-  defp parse_google_event(item, user_id, credential_id) do
+  # Extract meeting link from conferenceData if available
+  defp extract_meeting_link(%{"conferenceData" => %{"entryPoints" => entry_points}}) do
+    Enum.find_value(entry_points, fn ep ->
+      uri = Map.get(ep, "uri", "")
+      if String.contains?(uri, "zoom.us") or String.contains?(uri, "meet.google.com") do
+        uri
+      else
+        nil
+      end
+    end)
+  end
+  defp extract_meeting_link(_), do: nil
+
+  defp parse_google_event(item, user_id, credential_id, meeting_link) do
     start_time_str = Map.get(item["start"], "dateTime", Map.get(item["start"], "date"))
     end_time_str = Map.get(item["end"], "dateTime", Map.get(item["end"], "date"))
+
+    # Use meeting_link from conferenceData if location/hangoutLink not available
+    hangout_link = Map.get(item, "hangoutLink") ||
+                   Map.get(item, "location") ||
+                   meeting_link
 
     %{
       google_event_id: item["id"],
@@ -84,7 +112,7 @@ defmodule SocialScribe.CalendarSyncronizer do
       description: Map.get(item, "description"),
       location: Map.get(item, "location"),
       html_link: Map.get(item, "htmlLink"),
-      hangout_link: Map.get(item, "hangoutLink", Map.get(item, "location")),
+      hangout_link: hangout_link,
       status: Map.get(item, "status"),
       start_time: to_utc_datetime(start_time_str),
       end_time: to_utc_datetime(end_time_str),

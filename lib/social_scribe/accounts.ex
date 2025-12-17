@@ -347,6 +347,8 @@ defmodule SocialScribe.Accounts do
   end
 
   defp format_credential_attrs(user, %Auth{credentials: %{refresh_token: nil}} = auth) do
+    # When refresh_token is nil (e.g., re-authentication), don't include it
+    # so we don't overwrite an existing refresh_token
     %{
       user_id: user.id,
       provider: to_string(auth.provider),

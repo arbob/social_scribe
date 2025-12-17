@@ -355,9 +355,10 @@ defmodule SocialScribe.Meetings do
 
       {:ok, _transcript} = create_meeting_transcript(transcript_attrs)
 
-      # Note: Recall.ai v2 API doesn't include meeting_participants directly
-      # They are available via participant_events download URL
-      participants = Map.get(bot_api_info, :meeting_participants, [])
+      # Extract participants from transcript data (each entry has a participant field)
+      # or fall back to bot_api_info.meeting_participants
+      participants = extract_participants_from_transcript(transcript_data) ||
+                     Map.get(bot_api_info, :meeting_participants, [])
 
       Enum.each(participants, fn participant_data ->
         participant_attrs = parse_participant_attrs(meeting, participant_data)
@@ -367,6 +368,20 @@ defmodule SocialScribe.Meetings do
       Repo.preload(meeting, [:meeting_transcript, :meeting_participants])
     end)
   end
+
+  # Extract unique participants from transcript entries
+  defp extract_participants_from_transcript(transcript_data) when is_list(transcript_data) do
+    transcript_data
+    |> Enum.map(fn entry -> Map.get(entry, :participant) end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(fn p -> p.id end)
+    |> case do
+      [] -> nil
+      participants -> participants
+    end
+  end
+
+  defp extract_participants_from_transcript(_), do: nil
 
   # --- Private Parser Functions ---
 

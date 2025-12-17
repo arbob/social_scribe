@@ -15,35 +15,45 @@ defmodule SocialScribeWeb.MeetingLive.Show do
   def mount(%{"id" => meeting_id}, _session, socket) do
     meeting = Meetings.get_meeting_with_details(meeting_id)
 
-    user_has_automations =
-      Automations.list_active_user_automations(socket.assigns.current_user.id)
-      |> length()
-      |> Kernel.>(0)
+    cond do
+      is_nil(meeting) ->
+        socket =
+          socket
+          |> put_flash(:error, "Meeting not found.")
+          |> redirect(to: ~p"/dashboard/meetings")
 
-    automation_results = Automations.list_automation_results_for_meeting(meeting_id)
+        {:ok, socket}
 
-    if meeting.calendar_event.user_id != socket.assigns.current_user.id do
-      socket =
-        socket
-        |> put_flash(:error, "You do not have permission to view this meeting.")
-        |> redirect(to: ~p"/dashboard/meetings")
+      meeting.calendar_event.user_id != socket.assigns.current_user.id ->
+        socket =
+          socket
+          |> put_flash(:error, "You do not have permission to view this meeting.")
+          |> redirect(to: ~p"/dashboard/meetings")
 
-      {:error, socket}
-    else
-      socket =
-        socket
-        |> assign(:page_title, "Meeting Details: #{meeting.title}")
-        |> assign(:meeting, meeting)
-        |> assign(:automation_results, automation_results)
-        |> assign(:user_has_automations, user_has_automations)
-        |> assign(
-          :follow_up_email_form,
-          to_form(%{
-            "follow_up_email" => ""
-          })
-        )
+        {:ok, socket}
 
-      {:ok, socket}
+      true ->
+        user_has_automations =
+          Automations.list_active_user_automations(socket.assigns.current_user.id)
+          |> length()
+          |> Kernel.>(0)
+
+        automation_results = Automations.list_automation_results_for_meeting(meeting_id)
+
+        socket =
+          socket
+          |> assign(:page_title, "Meeting Details: #{meeting.title}")
+          |> assign(:meeting, meeting)
+          |> assign(:automation_results, automation_results)
+          |> assign(:user_has_automations, user_has_automations)
+          |> assign(
+            :follow_up_email_form,
+            to_form(%{
+              "follow_up_email" => ""
+            })
+          )
+
+        {:ok, socket}
     end
   end
 
@@ -112,6 +122,23 @@ defmodule SocialScribeWeb.MeetingLive.Show do
     {:noreply, socket}
   end
 
+  def handle_info({:generate_hubspot_suggestions, meeting, contact, component_id}, socket) do
+    require Logger
+    Logger.info("Generating HubSpot suggestions for meeting #{meeting.id}, contact: #{inspect(contact.id)}")
+
+    case AIContentGeneratorApi.generate_hubspot_suggestions(meeting, contact) do
+      {:ok, suggestions} ->
+        Logger.info("Generated #{length(suggestions)} suggestions")
+        send_update(component_id, suggestions: suggestions, loading_suggestions: false)
+
+      {:error, reason} ->
+        Logger.error("Failed to generate HubSpot suggestions: #{inspect(reason)}")
+        send_update(component_id, suggestions: [], loading_suggestions: false)
+    end
+
+    {:noreply, socket}
+  end
+
   defp maybe_refresh_hubspot_token(credential) do
     # Check if token is expired or will expire soon (within 5 minutes)
     # Refresh 5 minutes before expiry to avoid race conditions
@@ -147,24 +174,6 @@ defmodule SocialScribeWeb.MeetingLive.Show do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  @impl true
-  def handle_info({:generate_hubspot_suggestions, meeting, contact, component_id}, socket) do
-    require Logger
-    Logger.info("Generating HubSpot suggestions for meeting #{meeting.id}, contact: #{inspect(contact.id)}")
-
-    case AIContentGeneratorApi.generate_hubspot_suggestions(meeting, contact) do
-      {:ok, suggestions} ->
-        Logger.info("Generated #{length(suggestions)} suggestions")
-        send_update(component_id, suggestions: suggestions, loading_suggestions: false)
-
-      {:error, reason} ->
-        Logger.error("Failed to generate HubSpot suggestions: #{inspect(reason)}")
-        send_update(component_id, suggestions: [], loading_suggestions: false)
-    end
-
-    {:noreply, socket}
   end
 
   defp format_duration(nil), do: "N/A"

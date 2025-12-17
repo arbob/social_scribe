@@ -1,6 +1,16 @@
 defmodule SocialScribe.MixProject do
   use Mix.Project
 
+  # Load .env file in dev/test
+  if File.exists?(".env") and Mix.env() in [:dev, :test] do
+    for line <- File.stream!(".env"),
+        String.trim(line) != "",
+        not String.starts_with?(String.trim(line), "#"),
+        [key, value] = String.split(String.trim(line), "=", parts: 2) do
+      System.put_env(key, String.trim(value, "\""))
+    end
+  end
+
   def project do
     [
       app: :social_scribe,
